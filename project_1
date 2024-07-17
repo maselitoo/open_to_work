@@ -1,0 +1,244 @@
+import tkinter as tk
+from tkinter import messagebox, simpledialog
+import mysql.connector
+import uuid
+from datetime import datetime
+
+class ErrorDialog:
+    def __init__(self, master, message, language):
+        self.master = master
+        self.master.title("Błąd / Помилка" if language == "pl" else "Помилка / Błąd")
+        self.master.geometry("1200x500")
+        self.master.configure(bg="red")
+        
+        self.error_label = tk.Label(master, text=message, font=("Tahoma", 16, "bold"), fg='white', bg='red', wraplength=350)
+        self.error_label.pack(pady=20, padx=20)
+        
+        self.ok_button = tk.Button(master, text="OK / ОК" if language == "pl" else "ОК / OK", command=self.master.destroy, font=("Helvetica", 12, "bold"), bd=4, bg='#007bff', fg='#fff')
+        self.ok_button.pack(pady=10, padx=20)
+
+class DataModel:
+    def __init__(self):
+        self.cnx = mysql.connector.connect(
+            host='your_host',
+            user='your_user',
+            password='your_password',
+            database='your_db',
+            charset='utf8',
+        )
+        self.cursor = self.cnx.cursor()
+
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS codes (
+                id CHAR(36) PRIMARY KEY,
+                code VARCHAR(255) NOT NULL UNIQUE
+            )
+        """)
+        self.cnx.commit()
+
+    def check_duplicate(self, value):
+        self.cursor.execute("SELECT COUNT(*) FROM codes WHERE code = %s", (value,))
+        count = self.cursor.fetchone()[0]
+        return count > 0
+
+    def add_value(self, value):
+        try:
+            if self.check_duplicate(value):
+                raise ValueError("Znaleziono zduplikowany kod lub kod już istnieje w bazie danych./Знайдено дублікат коду або код вже існує в базі даних.")
+            
+            self.cursor.execute("INSERT INTO codes (id, code) VALUES (%s, %s)", (str(uuid.uuid4()), value))
+            self.cnx.commit()
+
+        except mysql.connector.IntegrityError as e:
+            self.cnx.rollback()  # Rollback to avoid keeping the failed insert
+            raise ValueError("Znaleziono zduplikowany kod lub kod już istnieje w bazie danych./Знайдено дублікат коду або код вже існує в базі даних.")
+        except mysql.connector.Error as e:
+            raise e
+
+    def save_to_file(self, file_path):
+        try:
+            with open(file_path, "w") as file:
+                self.cursor.execute("SELECT code FROM codes")
+                for row in self.cursor.fetchall():
+                    file.write(f"{row[0]}\n")
+        except Exception as e:
+            raise e
+
+    def reset_process(self):
+        self.cursor.execute("TRUNCATE TABLE codes")
+        self.cnx.commit()
+
+class AppState:
+    def __init__(self):
+        self.data_model = DataModel()
+
+def confirm_end_process(language):
+    message = "Czy na pewno chcesz zakończyć proces i usunąć dane? / Чи дійсно хочете закінчити процес і видалити дані?"
+    if messagebox.askyesno("Potwierdzenie / Підтвердження", message):
+        app_state.data_model.reset_process()
+        messagebox.showinfo("Proces zakończony/ Процес закінчено", "Proces zakończony pomyślnie. / Процес закінчено успішно.")
+        root.destroy()
+    else:
+        messagebox.showinfo("Anulowanie / Скасовано", "Proces nie został zakończony. / Процес не був закінчений.")
+
+class MyApp:
+    def __init__(self, master, app_state, language):
+        self.master = master
+        self.app_state = app_state
+        self.language = language
+        self.entry_var = tk.StringVar()
+        self.save_button_clicked = False
+
+        self.master.title("BOLINICELLTRION")
+
+        # Background color and font settings
+        self.bg_color = '#1a1a1a'
+        self.fg_color = '#ffffff'
+        self.font_family = 'Tahoma'
+        self.header_font_size = 16
+        self.body_font_size = 14
+
+        self.main_frame = tk.Frame(master, bg=self.bg_color)
+        self.main_frame.pack(fill='both', expand=True)
+
+        self.header_frame = tk.Frame(self.main_frame, bg=self.bg_color)
+        self.header_frame.pack(fill='x', padx=20, pady=10)
+
+        self.input_entry = tk.Entry(self.header_frame, textvariable=self.entry_var, font=(self.font_family, self.header_font_size), width=50, bd=4, bg='#333333', fg=self.fg_color)
+        self.input_entry.pack(side='left', padx=10)
+
+        self.counter_label = tk.Label(self.header_frame, text="", font=(self.font_family, self.header_font_size), bg=self.bg_color, fg=self.fg_color)
+        self.counter_label.pack(side='left', padx=10)
+
+        self.text_box_frame = tk.Frame(self.main_frame, bg=self.bg_color)
+        self.text_box_frame.pack(fill='both', expand=True, padx=20, pady=10)
+
+        self.text_box = tk.Text(self.text_box_frame, height=10, width=40, state="disabled", font=(self.font_family, self.body_font_size), bg='#333333', fg=self.fg_color)
+        self.text_box.pack(side='left', fill='both', expand=True)
+
+        self.text_box_scrollbar = tk.Scrollbar(self.text_box_frame, orient="vertical", command=self.text_box.yview)
+        self.text_box_scrollbar.pack(side='right', fill='y')
+
+        self.picture = tk.PhotoImage(file=r"C:\Users\m.dlugosz\Desktop\pyth\aplication\apka\application\picture.png")
+        self.picture_label = tk.Label(master, image=self.picture)
+        self.picture_label.place(relx=1.0, rely=1.0, anchor=tk.SE)
+
+        self.text_box.config(yscrollcommand=self.text_box_scrollbar.set)
+
+        self.button_frame = tk.Frame(self.main_frame, bg=self.bg_color)
+        self.button_frame.pack(fill='x', padx=20, pady=10)
+
+        self.ok_button = tk.Button(self.button_frame, text="DODAJ / ДОДАТИ", command=self.add_to_display, font=(self.font_family, self.header_font_size), bd=4, bg='#28a745', fg=self.fg_color)
+        self.ok_button.pack(side='left', padx=10)
+
+        self.quit_button = tk.Button(self.button_frame, text="ZAPISZ / ЗБЕРЕГТИ", command=self.save_to_file_dialog, font=(self.font_family, self.header_font_size), bd=4, bg='#007bff', fg=self.fg_color)
+        self.quit_button.pack(side='left', padx=10)
+
+        self.end_process_button = tk.Button(self.button_frame, text="Zakończ proces / Закінчити процес", command=lambda: confirm_end_process(self.language), font=(self.font_family, self.header_font_size), bd=4, bg='#dc3545', fg=self.fg_color, state='disabled')
+        self.end_process_button.pack(side='left', padx=10)
+
+        self.input_entry.bind('<Return>', self.add_to_display)
+
+        self.refresh_counter()
+        self.refresh_text_box()
+
+    def add_to_display(self, event=None):
+        input_text = self.entry_var.get()
+
+        if not input_text:
+            message = "Wprowadź wartość / Введіть значення" if self.language == "pl" else "Enter a value"
+            self.show_error(message)
+            return
+
+        if not input_text.isdigit():
+            message = "Kod musi składać się z cyfr / Код повинен складатися з цифр" if self.language == "pl" else "Code must consist of digits"
+            self.show_error(message)
+            return
+
+        if len(input_text) != 9:
+            message = "Kod musi mieć 9 cyfr / Код повинен мати 9 цифр" if self.language == "pl" else "Code must have 9 digits"
+            self.show_error(message)
+            return
+
+        try:
+            self.app_state.data_model.add_value(input_text)
+            self.update_text_box(input_text, "ok")
+            self.entry_var.set("")
+            self.input_entry.focus()
+            self.enable_end_process_button()
+
+        except ValueError as ve:
+            self.update_text_box(input_text, "duplicate")
+            self.show_error(str(ve))
+            self.entry_var.set("")
+            self.input_entry.focus()
+
+    def update_text_box(self, text, tag):
+        self.text_box.config(state="normal")
+        self.text_box.insert("end", f"{text}\n", tag)
+        self.text_box.tag_config(tag, foreground="#00FF00" if tag == "ok" else "#FF0000", font=(self.font_family, 12, "bold"), background="#CCFFCC" if tag == "ok" else "yellow")
+        self.text_box.see("end")
+        self.text_box.config(state="disabled")
+
+    def refresh_counter(self):
+        try:
+            self.app_state.data_model.cursor.execute("SELECT COUNT(*) FROM codes")
+            count = self.app_state.data_model.cursor.fetchone()[0]
+            self.counter_label.config(text=f"Ilość kodów: {count} / Кількість кодів: {count}")
+        except Exception as e:
+            self.show_error(f"Error updating counter: {str(e)}")
+
+        self.master.after(500, self.refresh_counter)
+
+    def refresh_text_box(self):
+        try:
+            self.text_box.config(state="normal")
+            self.text_box.delete("1.0", "end")
+            self.app_state.data_model.cursor.execute("SELECT code FROM codes")
+            for row in self.app_state.data_model.cursor.fetchall():
+                self.text_box.insert("end", f"{row[0]}\n", "ok")
+            self.text_box.config(state="disabled")
+        except Exception as e:
+            self.show_error(f"Error refreshing text box: {str(e)}")
+
+        self.master.after(500, self.refresh_text_box)
+
+    def save_to_file_dialog(self):
+        file_name = simpledialog.askstring("Zapisz jako / Зберегти як", "Wpisz nazwę pliku / Введіть ім'я файлу")
+        if file_name:
+            file_path = fr"U:\Quality_Public\Celltrion documentation\SKANY BOLLINI APLIKACJA\{file_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+            try:
+                self.app_state.data_model.save_to_file(file_path)
+                messagebox.showinfo("Plik zapisany / Файл збережено", f"Plik został zapisany jako: {file_path}")
+                self.save_button_clicked = True
+                self.enable_end_process_button()
+            except Exception as e:
+                self.show_error(f"Wystąpił błąd podczas zapisu pliku: {str(e)}")
+
+    def enable_end_process_button(self):
+        if self.save_button_clicked:
+            self.end_process_button.config(state='normal')
+        else:
+            self.end_process_button.config(state='disabled')
+
+    def show_error(self, message):
+        error_dialog = tk.Toplevel()
+        error_dialog.title("Error / Помилка")
+        error_dialog.geometry("400x200")
+        error_dialog.configure(bg="red")
+
+        error_label = tk.Label(error_dialog, text=message, font=("Tahoma", 16, "bold"), fg='white', bg='red', wraplength=350)
+        error_label.pack(pady=20, padx=20)
+
+        ok_button = tk.Button(error_dialog, text="OK", command=error_dialog.destroy, font=("Helvetica", 12, "bold"), bd=4, bg='#007bff', fg='#fff')
+        ok_button.pack(pady=10, padx=20)
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    root.resizable(True, True)  # Allow resizing in both directions
+
+    language = "pl"  # Set your desired language ("pl" for Polish, "uk" for Ukrainian)
+    app_state = AppState()
+    my_app = MyApp(root, app_state, language)
+    
+    root.mainloop()
